@@ -259,13 +259,19 @@ tbody td{padding:7px 10px;vertical-align:middle}
 <div class="modal-overlay" id="mail-modal">
   <div class="modal" style="max-width:520px">
     <h3>📧 補貨發信</h3>
-    <p style="font-size:12px;color:var(--text2);margin-bottom:8px">已嘗試開啟 Mail.app。若未開啟，點「📋 複製表格」貼入 Gmail/Outlook（⌘V）。</p>
+    <div id="mail-step-hint" style="display:none;background:#E8F8EE;border:1px solid #34C759;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px;line-height:2">
+      <strong>📮 操作步驟：</strong><br>
+      <strong style="color:#0071E3">① Mail.app 已開啟</strong>，填入收件人<br>
+      <strong style="color:#0071E3">② 點「📋 複製 HTML 表格」</strong>→ 到 Mail.app 本文按 <kbd style="background:#eee;padding:2px 6px;border-radius:4px;font-family:monospace">⌘V</kbd> 貼上<br>
+      <strong style="color:#0071E3">③ 傳送</strong> ✉️
+    </div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:6px">Mail.app 撰寫視窗已開啟，複製表格後貼入郵件本文。</p>
     <div style="font-size:11px;color:var(--text2);margin-bottom:4px">主旨</div>
     <div style="background:var(--blue-light);border-radius:6px;padding:8px 12px;margin-bottom:8px;font-weight:600;font-size:13px" id="mail-subject-display"></div>
     <div style="font-size:11px;color:var(--text2);margin-bottom:4px">品項清單</div>
     <div class="mail-preview" id="mail-body-display"></div>
     <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
-      <button class="copy-btn" onclick="copyMailContent()">📋 複製表格（Gmail/Outlook 備用）</button>
+      <button class="copy-btn" onclick="copyMailTable()" style="font-size:14px;padding:10px 22px">📋 複製 HTML 表格</button>
       <span id="copy-confirm" style="font-size:12px;color:#34C759;display:none">✅ 已複製！</span>
     </div>
     <div class="modal-actions" style="margin-top:12px">
@@ -597,8 +603,9 @@ function exportExcel(){
 }
 
 
-// ── Email Template ────────────────────────────────────────────────
+// ── Email Template ───────────────────────────────────────
 let _lastMailSubject = '';
+let _lastHtmlBody    = '';
 
 function buildMailHTML(urgItems) {
   const rows = urgItems.map((r,i) => {
@@ -616,35 +623,63 @@ function openMailTemplate() {
   if (!state.computed.length) { toast('請先上傳 XLS 並計算庫存水位','error'); return; }
   const urgItems = state.computed.filter(r => r.level >= 2);
   if (!urgItems.length) { toast('🎉 目前沒有需補貨品項！','success'); return; }
+
   const today = new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit'});
   _lastMailSubject = '【配件補貨通知】'+today+'　共 '+urgItems.length+' 項';
-  const htmlBody = buildMailHTML(urgItems);
-  const b64 = s => btoa(unescape(encodeURIComponent(s)));
-  const b64body = btoa(unescape(encodeURIComponent(htmlBody)));
-  const eml = 'MIME-Version: 1.0\r\nX-Unsent: 1\r\nDate: '+new Date().toUTCString()+'\r\nSubject: =?UTF-8?B?'+b64(_lastMailSubject)+'?=\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n'+b64body.match(/.{1,76}/g).join('\r\n');
-  const blob = new Blob([eml],{type:'message/rfc822'});
-  const url = URL.createObjectURL(blob);
+  _lastHtmlBody = buildMailHTML(urgItems);
+
+  // Step 1: mailto: 開啟 Mail.app 撰寫視窗（純文字，確保成功開啟不出錯）
+  const shortRows = urgItems.slice(0,15).map(r=>{
+    const qty=r.reorder!=null?r.reorder:Math.ceil(r.avg_mo||1);
+    return r.no+' '+(r.name||'').slice(0,20)+' '+qty+'件';
+  }).join('\n');
+  const shortBody = '您好，\n\n本週補貨需求：\n'+shortRows
+    +(urgItems.length>15?'\n...等共'+urgItems.length+'項':'')
+    +'\n\n詳細表格請複製貼入。\n\n此致';
+
+  const mailto = 'mailto:?subject='+encodeURIComponent(_lastMailSubject)+'&body='+encodeURIComponent(shortBody);
   const a = document.createElement('a');
-  a.href = url;
+  a.href = mailto;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url),30000);
-  toast('📨 已開啟補貨草稿，填入收件人後即可寄出','success');
+
+  // Step 2: 彈出 Modal 顯示 HTML 表格
   document.getElementById('mail-subject-display').textContent = _lastMailSubject;
-  const m = htmlBody.match(/<table[\s\S]*?<\/table>/i);
-  document.getElementById('mail-body-display').innerHTML = m?m[0]:'';
+  const m = _lastHtmlBody.match(/<table[\s\S]*?<\/table>/i);
+  document.getElementById('mail-body-display').innerHTML = m ? m[0] : '';
+  const hint = document.getElementById('mail-step-hint');
+  if(hint) hint.style.display='block';
+  showModal('mail-modal');
 }
 
-function copyMailContent() {
-  if (!_lastMailSubject) { openMailTemplate(); return; }
-  const urgItems = state.computed.filter(r => r.level >= 2);
-  const htmlBody = buildMailHTML(urgItems);
-  const text = '主旨：'+_lastMailSubject+'\n\n'+urgItems.map(r=>r.no+'\t'+(r.name||'')+'\t'+(r.reorder!=null?r.reorder:Math.ceil(r.avg_mo||1))).join('\n');
-  const done = () => { toast('📋 已複製！貼入郵件視窗（⌘V）','success'); const el=document.getElementById('copy-confirm'); if(el){el.style.display='inline';setTimeout(()=>el.style.display='none',3500);} };
+function copyMailTable() {
+  if (!_lastHtmlBody) { toast('請先點補貨發信','error'); return; }
+  const done = () => {
+    toast('📋 已複製！到 Mail.app 郵件本文按 ⌘V 貼上','success');
+    const el=document.getElementById('copy-confirm');
+    if(el){el.style.display='inline';setTimeout(()=>el.style.display='none',4000);}
+  };
+  const htmlFull = '<p>您好，</p><p>以下為本週配件補貨需求清單，煩請確認庫存並安排出貨，謝謝。</p>'
+    + (_lastHtmlBody.match(/<table[\s\S]*?<\/table>/i)?.[0] || '')
+    + '<p>如有任何問題，敬請回覆此信。</p><p>此致</p>';
   if(navigator.clipboard && window.ClipboardItem){
-    try { navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([htmlBody],{type:'text/html'}),'text/plain':new Blob([text],{type:'text/plain'})})]).then(done).catch(()=>leg()); } catch(e){leg();}
-  } else if(navigator.clipboard){ navigator.clipboard.writeText(text).then(done); } else { leg(); }
-  function leg(){ const d=document.createElement('div');d.innerHTML=htmlBody;d.style.cssText='position:fixed;left:-9999px';document.body.appendChild(d);const s=window.getSelection();const r=document.createRange();r.selectNodeContents(d);s.removeAllRanges();s.addRange(r);document.execCommand('copy');s.removeAllRanges();document.body.removeChild(d);done(); }
+    try {
+      navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([htmlFull],{type:'text/html'}),
+        'text/plain': new Blob([''],{type:'text/plain'})
+      })]).then(done).catch(()=>legacyCopy());
+    } catch(e){ legacyCopy(); }
+  } else if(navigator.clipboard){ navigator.clipboard.writeText(htmlFull).then(done); }
+  else { legacyCopy(); }
+  function legacyCopy(){
+    const d=document.createElement('div');d.innerHTML=htmlFull;
+    d.style.cssText='position:fixed;left:-9999px';document.body.appendChild(d);
+    const s=window.getSelection();const r=document.createRange();
+    r.selectNodeContents(d);s.removeAllRanges();s.addRange(r);
+    document.execCommand('copy');s.removeAllRanges();document.body.removeChild(d);done();
+  }
 }
+function copyMailContent(){ copyMailTable(); }
+
 
 // ── Changelog ─────────────────────────────────────────────────────
 function renderChangelog(){
