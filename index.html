@@ -576,7 +576,7 @@ function downloadICS(){
   const uid='inv-reorder-'+Date.now()+'@store';
   const urgItems=state.computed.filter(r=>r.level>=2);
   const urgList=urgItems.slice(0,8).map(r=>`${r.no} ${r.name.slice(0,18)}(${r.reorder||'?'}件)`).join('\\n');
-  const desc=`【每${dayMap[s.day]}補貨提醒】\\n\\n請專員執行：\\n1️⃣ 開啟庫存水位提醒 Excel\\n2️⃣ 查看緊急補貨清單\\n3️⃣ 依建議補貨量發信至各廠商\\n4️⃣ 更新補貨狀態\\n`+
+  const desc=`【每${dayMap[s.day]}補貨提醒】\\n\\n請專員執行：\\n1️⃣ 開啟庫存水位提醒 Excel\\n2️⃣ 查看緊急補貨清單\\n3️⃣ 依建議補貨量發信至各採購\\n4️⃣ 更新補貨狀態\\n`+
     (urgItems.length?`\\n📋 待補貨品項（${urgItems.length}件）：\\n${urgList}\\n`:'')
     +`\\n📌 水位標準：🔴<14天 🟠 14-30天 🟡 30-60天 🟢>60天`;
   const alarm=s.alarm>0?`\r\nBEGIN:VALARM\r\nTRIGGER:-PT${s.alarm}M\r\nACTION:DISPLAY\r\nDESCRIPTION:提醒：${s.title}\r\nEND:VALARM`:'';
